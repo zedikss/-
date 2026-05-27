@@ -25,8 +25,8 @@ class CProgramLauncher:
                 self.cpp_files.append(file)
         self.cpp_files.sort()
         
-        # Удаляем ненужные файлы из списка (script2.cpp больше не удаляется)
-        files_to_remove = ['test1.cpp']  # Удаляем только test1.cpp
+        # Удаляем ненужные файлы из списка
+        files_to_remove = ['script2.cpp', 'test1.cpp']  # Удаляем script2.cpp и test1.cpp
         self.cpp_files = [f for f in self.cpp_files if f not in files_to_remove]
         
         # Если после удаления файлов не осталось - показываем сообщение
