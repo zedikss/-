@@ -1,9 +1,10 @@
-#include <GLut/glut.h>
+#include <GLUT/glut.h>
 #include <OpenGL/gl.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <math.h>
-#include <time.h>
+#include <random>
+#include <chrono>
 
 // --- Константы ---
 #define MAX_FISH 10           // Максимальное количество рыбок
@@ -11,12 +12,15 @@
 #define FISH_SPEED 0.03f      // Скорость рыбок
 #define BUBBLE_SPEED 0.05f    // Скорость пузырей
 #define PI 3.14159265f
+#define COLOR_CHANGE_SPEED 0.02f  // Скорость изменения цвета
 
 // --- Структуры ---
 typedef struct {
     float x, y;           // Позиция
     float vx, vy;         // Скорость
-    float r, g, b;        // Цвет
+    float r, g, b;        // Текущий цвет
+    float target_r, target_g, target_b;  // Целевой цвет для мигания
+    float color_change_timer;  // Таймер до следующей смены цвета
     float size;           // Размер
     float direction;      // Направление (в радианах)
     float wiggle_angle;   // Угол для плавных движений
@@ -45,15 +49,37 @@ float aquarium_right = 9.0f;
 float aquarium_bottom = -8.0f;
 float aquarium_top = 8.0f;
 
+// --- Глобальные генераторы случайных чисел ---
+std::random_device rd;
+std::mt19937 gen(rd());
+std::uniform_real_distribution<float> dis(0.0f, 1.0f);
+
 // --- Вспомогательные функции ---
 float random_float(float min, float max) {
-    return min + (float)rand() / (float)RAND_MAX * (max - min);
+    return min + dis(gen) * (max - min);
+}
+
+// --- Функция для генерации случайного яркого цвета ---
+void generate_random_color(float* r, float* g, float* b) {
+    *r = random_float(0.4f, 1.0f);
+    *g = random_float(0.4f, 1.0f);
+    *b = random_float(0.4f, 1.0f);
+    
+    // Чтобы цвета были более насыщенными, иногда делаем один цвет доминирующим
+    if (random_float(0.0f, 1.0f) > 0.6f) {
+        int dominant = (int)random_float(0.0f, 3.0f);
+        switch(dominant) {
+            case 0: *r = random_float(0.8f, 1.0f); *g = random_float(0.2f, 0.5f); *b = random_float(0.2f, 0.5f); break;
+            case 1: *r = random_float(0.2f, 0.5f); *g = random_float(0.8f, 1.0f); *b = random_float(0.2f, 0.5f); break;
+            case 2: *r = random_float(0.2f, 0.5f); *g = random_float(0.2f, 0.5f); *b = random_float(0.8f, 1.0f); break;
+        }
+    }
 }
 
 // --- Рисование круга ---
 void draw_circle(float x, float y, float radius, int segments) {
     glBegin(GL_TRIANGLE_FAN);
-    glVertex2f(x, y);  // Центр круга
+    glVertex2f(x, y);
     for (int i = 0; i <= segments; i++) {
         float angle = 2.0f * PI * (float)i / (float)segments;
         glVertex2f(x + cosf(angle) * radius, y + sinf(angle) * radius);
@@ -61,13 +87,13 @@ void draw_circle(float x, float y, float radius, int segments) {
     glEnd();
 }
 
-// --- Рисование рыбки (треугольник + хвост) ---
+// --- Рисование рыбки ---
 void draw_fish(float x, float y, float size, float direction, float wiggle, float r, float g, float b) {
     glPushMatrix();
     glTranslatef(x, y, 0.0f);
     glRotatef(direction * 180.0f / PI, 0.0f, 0.0f, 1.0f);
 
-    // Тело рыбки (эллипс)
+    // Тело рыбки
     glColor3f(r, g, b);
     glBegin(GL_TRIANGLE_FAN);
     for (int i = 0; i <= 20; i++) {
@@ -78,7 +104,7 @@ void draw_fish(float x, float y, float size, float direction, float wiggle, floa
     }
     glEnd();
 
-    // Хвост (треугольник с колебаниями)
+    // Хвост (чуть темнее)
     glColor3f(r * 0.8f, g * 0.8f, b * 0.8f);
     glBegin(GL_TRIANGLES);
     float tail_wiggle = sinf(wiggle) * 0.3f;
@@ -96,11 +122,9 @@ void draw_fish(float x, float y, float size, float direction, float wiggle, floa
     // Плавники
     glColor3f(r * 0.9f, g * 0.9f, b * 0.9f);
     glBegin(GL_TRIANGLES);
-    // Верхний плавник
     glVertex2f(-size * 0.3f, size * 0.4f);
     glVertex2f(size * 0.2f, size * 0.6f);
     glVertex2f(size * 0.5f, size * 0.4f);
-    // Нижний плавник
     glVertex2f(-size * 0.3f, -size * 0.4f);
     glVertex2f(size * 0.2f, -size * 0.6f);
     glVertex2f(size * 0.5f, -size * 0.4f);
@@ -111,8 +135,6 @@ void draw_fish(float x, float y, float size, float direction, float wiggle, floa
 
 // --- Инициализация ---
 void init() {
-    srand((unsigned int)time(NULL));
-
     // Инициализация рыбок
     for (int i = 0; i < MAX_FISH; i++) {
         fishes[i].x = random_float(aquarium_left, aquarium_right);
@@ -120,27 +142,13 @@ void init() {
         fishes[i].vx = random_float(-FISH_SPEED, FISH_SPEED);
         fishes[i].vy = random_float(-FISH_SPEED * 0.3f, FISH_SPEED * 0.3f);
 
-        // Выбор цвета рыбок
-        int color_type = rand() % 3;
-        if (color_type == 0) {
-            // Золотая рыбка
-            fishes[i].r = random_float(0.9f, 1.0f);
-            fishes[i].g = random_float(0.6f, 0.7f);
-            fishes[i].b = random_float(0.1f, 0.2f);
-        }
-        else if (color_type == 1) {
-            // Серебряная рыбка
-            fishes[i].r = random_float(0.7f, 0.8f);
-            fishes[i].g = random_float(0.7f, 0.8f);
-            fishes[i].b = random_float(0.8f, 0.9f);
-        }
-        else {
-            // Цветная рыбка
-            fishes[i].r = random_float(0.5f, 1.0f);
-            fishes[i].g = random_float(0.3f, 0.8f);
-            fishes[i].b = random_float(0.3f, 0.8f);
-        }
-
+        // Начальный случайный цвет
+        generate_random_color(&fishes[i].r, &fishes[i].g, &fishes[i].b);
+        
+        // Целевой цвет для мигания (другой случайный цвет)
+        generate_random_color(&fishes[i].target_r, &fishes[i].target_g, &fishes[i].target_b);
+        
+        fishes[i].color_change_timer = random_float(1.0f, 3.0f);  // Меняем цвет каждые 1-3 секунды
         fishes[i].size = random_float(0.3f, 0.6f);
         fishes[i].direction = atan2f(fishes[i].vy, fishes[i].vx);
         fishes[i].wiggle_angle = random_float(0.0f, 2.0f * PI);
@@ -174,6 +182,7 @@ void create_bubble(float x, float y) {
 // --- Обновление состояния ---
 void update(int value) {
     frames++;
+    float delta_time = 0.016f;  // Примерно 16 мс между кадрами
 
     // Обновление рыбок
     for (int i = 0; i < MAX_FISH; i++) {
@@ -188,10 +197,23 @@ void update(int value) {
             // Обновление направления
             fishes[i].direction = atan2f(fishes[i].vy, fishes[i].vx);
 
+            // --- МИГАНИЕ ЦВЕТОМ (плавный переход) ---
+            fishes[i].color_change_timer -= delta_time;
+            
+            if (fishes[i].color_change_timer <= 0.0f) {
+                // Выбираем новый целевой цвет
+                generate_random_color(&fishes[i].target_r, &fishes[i].target_g, &fishes[i].target_b);
+                fishes[i].color_change_timer = random_float(0.5f, 2.0f);  // Быстрое мигание (0.5-2 секунды)
+            }
+            
+            // Плавный переход к целевому цвету
+            fishes[i].r += (fishes[i].target_r - fishes[i].r) * COLOR_CHANGE_SPEED;
+            fishes[i].g += (fishes[i].target_g - fishes[i].g) * COLOR_CHANGE_SPEED;
+            fishes[i].b += (fishes[i].target_b - fishes[i].b) * COLOR_CHANGE_SPEED;
+
             // Отражение от стенок аквариума
             if (fishes[i].x < aquarium_left || fishes[i].x > aquarium_right) {
                 fishes[i].vx = -fishes[i].vx;
-                // Небольшое случайное изменение
                 fishes[i].vx += random_float(-0.01f, 0.01f);
             }
             if (fishes[i].y < aquarium_bottom || fishes[i].y > aquarium_top) {
@@ -214,7 +236,7 @@ void update(int value) {
             }
 
             // Небольшое случайное изменение направления
-            if (rand() % 100 < 2) {
+            if (random_float(0.0f, 100.0f) < 2) {
                 fishes[i].vx += random_float(-0.01f, 0.01f);
                 fishes[i].vy += random_float(-0.005f, 0.005f);
             }
@@ -224,19 +246,11 @@ void update(int value) {
     // Обновление пузырей
     for (int i = 0; i < MAX_BUBBLES; i++) {
         if (bubbles[i].is_alive) {
-            // Движение вверх
             bubbles[i].y += bubbles[i].vy;
-
-            // Небольшое горизонтальное колебание
             bubbles[i].x += sinf(frames * 0.05f + i) * 0.005f;
-
-            // Увеличение размера
             bubbles[i].size += bubbles[i].growth_rate;
-
-            // Медленное уменьшение прозрачности
             bubbles[i].opacity *= 0.995f;
 
-            // Исчезновение при достижении верха, слишком большого размера или малой прозрачности
             if (bubbles[i].y > aquarium_top + 1.0f ||
                 bubbles[i].size > 0.25f ||
                 bubbles[i].opacity < 0.1f) {
@@ -255,10 +269,10 @@ void display() {
 
     // Фон аквариума (вода)
     glBegin(GL_QUADS);
-    glColor3f(0.1f, 0.2f, 0.4f);        // Темно-синий верх
+    glColor3f(0.1f, 0.2f, 0.4f);
     glVertex2f(-10.0f, 10.0f);
     glVertex2f(10.0f, 10.0f);
-    glColor3f(0.2f, 0.4f, 0.6f);        // Светло-синий низ
+    glColor3f(0.2f, 0.4f, 0.6f);
     glVertex2f(10.0f, -10.0f);
     glVertex2f(-10.0f, -10.0f);
     glEnd();
@@ -295,19 +309,14 @@ void display() {
         draw_circle(x, y, size, 12);
     }
 
-    // Пузыри (с прозрачностью)
+    // Пузыри
     glEnable(GL_BLEND);
     glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
 
     for (int i = 0; i < MAX_BUBBLES; i++) {
         if (bubbles[i].is_alive) {
-            // Белый цвет с прозрачностью
             glColor4f(0.9f, 0.95f, 1.0f, bubbles[i].opacity);
-
-            // Основной пузырь
             draw_circle(bubbles[i].x, bubbles[i].y, bubbles[i].size, 16);
-
-            // Блик на пузыре
             glColor4f(1.0f, 1.0f, 1.0f, bubbles[i].opacity * 0.8f);
             draw_circle(bubbles[i].x - bubbles[i].size * 0.3f,
                 bubbles[i].y + bubbles[i].size * 0.3f,
@@ -315,7 +324,7 @@ void display() {
         }
     }
 
-    // Рыбки
+    // Рыбки (с мигающими цветами)
     for (int i = 0; i < MAX_FISH; i++) {
         if (fishes[i].is_alive) {
             draw_fish(fishes[i].x, fishes[i].y,
@@ -326,8 +335,9 @@ void display() {
         }
     }
 
-    // Стекла аквариума (рамка)
     glDisable(GL_BLEND);
+    
+    // Рамка аквариума
     glColor3f(0.3f, 0.3f, 0.3f);
     glLineWidth(2.0f);
     glBegin(GL_LINE_LOOP);
@@ -345,7 +355,7 @@ void display() {
     }
 
     char title[100];
-    sprintf(title, "Aquarium - Fish: %d, Bubbles: %d", MAX_FISH, active_bubbles);
+    snprintf(title, sizeof(title), "Aquarium - Blinking Fish! 🐠 Colors changing...");
     glutSetWindowTitle(title);
 
     glutSwapBuffers();
@@ -353,8 +363,7 @@ void display() {
 
 // --- Обработка клавиатуры ---
 void keyboard(unsigned char key, int x, int y) {
-    // Оставляем только выход по клавише ESC
-    if (key == 27) { // 27 - это код клавиши ESC
+    if (key == 27) {
         exit(0);
     }
 }
@@ -385,11 +394,12 @@ int main(int argc, char** argv) {
     glutInit(&argc, argv);
     glutInitDisplayMode(GLUT_DOUBLE | GLUT_RGB | GLUT_ALPHA);
     glutInitWindowSize(window_width, window_height);
-    glutCreateWindow("Aquarium with Fish and Bubbles");
+    glutCreateWindow("Aquarium with Blinking Fish");
 
     init();
 
-    printf("=== Aquarium Simulation ===\n");
+    printf("=== Aquarium with BLINKING FISH ===\n");
+    printf("✨ Fish change colors randomly every 0.5-2 seconds!\n");
     printf("Controls:\n");
     printf("  ESC   - Exit\n");
 
