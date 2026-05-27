@@ -3,6 +3,7 @@
 #include <stdlib.h>
 #include <math.h>
 #include <time.h>
+#include <random>
 
 // --- Константы ---
 #define MAX_BALLS 20           // Максимальное количество основных шаров
@@ -19,6 +20,7 @@ typedef struct {
     float growth_rate;    // Скорость роста
     int is_alive;         // 1 = живой, 0 = мертвый
     int timer;            // Таймер до взрыва
+    int color_timer;      // Таймер смены цвета (мигание)
 } Ball;
 
 typedef struct {
@@ -38,11 +40,20 @@ int window_width = 800;
 int window_height = 600;
 int frames = 0;
 int spawn_counter = 0;
-int spawn_delay = 60;      // Задержка между появлением новых шаров
+int spawn_delay = 40;      // Задержка между появлением новых шаров
 
-// --- Вспомогательные функции ---
+// Генератор случайных чисел
+std::mt19937 rng(std::time(nullptr));
+
+// Вспомогательные функции для генерации случайных чисел
 float random_float(float min, float max) {
-    return min + (float)rand() / (float)RAND_MAX * (max - min);
+    std::uniform_real_distribution<float> dist(min, max);
+    return dist(rng);
+}
+
+int random_int(int min, int max) {
+    std::uniform_int_distribution<int> dist(min, max);
+    return dist(rng);
 }
 
 // --- Рисование круга ---
@@ -58,8 +69,6 @@ void draw_circle(float x, float y, float radius, int segments) {
 
 // --- Инициализация ---
 void init() {
-    srand((unsigned int)time(NULL));
-
     // Инициализация шаров
     for (int i = 0; i < MAX_BALLS; i++) {
         balls[i].is_alive = 0;
@@ -85,7 +94,8 @@ void create_ball() {
             balls[i].size = random_float(0.1f, 0.2f);
             balls[i].growth_rate = random_float(0.002f, 0.005f);
             balls[i].is_alive = 1;
-            balls[i].timer = (int)random_float(80.0f, 150.0f);  // Время до взрыва
+            balls[i].timer = random_int(80, 150);  // Время до взрыва
+            balls[i].color_timer = random_int(30, 90); // Таймер смены цвета (мигание)
             return;
         }
     }
@@ -93,7 +103,7 @@ void create_ball() {
 
 // --- Создание частиц взрыва ---
 void create_explosion(float x, float y, float r, float g, float b) {
-    int particles_count = (int)random_float(15.0f, 30.0f);
+    int particles_count = random_int(15, 30);
 
     for (int p = 0; p < particles_count; p++) {
         for (int i = 0; i < MAX_PARTICLES; i++) {
@@ -127,7 +137,7 @@ void update(int value) {
     if (spawn_counter >= spawn_delay) {
         create_ball();
         spawn_counter = 0;
-        spawn_delay = (int)random_float(40.0f, 100.0f);  // Случайная задержка
+        spawn_delay = random_int(40, 100);  // Случайная задержка
     }
 
     // Обновление шаров
@@ -143,6 +153,17 @@ void update(int value) {
 
             // Таймер до взрыва
             balls[i].timer--;
+
+            // Мигание цветом: смена цвета через случайные интервалы
+            balls[i].color_timer--;
+            if (balls[i].color_timer <= 0) {
+                // Генерируем новый случайный яркий цвет
+                balls[i].r = random_float(0.5f, 1.0f);
+                balls[i].g = random_float(0.2f, 1.0f);
+                balls[i].b = random_float(0.2f, 1.0f);
+                // Следующая смена через 30-90 кадров
+                balls[i].color_timer = random_int(15, 30);
+            }
 
             // Взрыв по таймеру или при замедлении
             if (balls[i].timer <= 0 || balls[i].vy < -0.05f) {
