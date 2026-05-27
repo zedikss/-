@@ -78,7 +78,7 @@ void updateCamera() {
     }
     
     // Движение вверх/вниз (пробел и E)
-    if (keys[' ']  keys['Q']) {
+    if (keys[' '] || keys['Q']) {
         ypos -= 0.05;
     }
     if (keys['e'] || keys['E']) {
