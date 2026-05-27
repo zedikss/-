@@ -1,6 +1,9 @@
 #include <stdio.h>
 #include <GLUT/glut.h>
 #include <stdlib.h>  // для exit()
+#include <random>    // для random_device и mt19937
+
+float cubeSize = 0.5f;  // Глобальная переменная для размера куба
 
 void drawCube(float s) {
     float h = s * 0.5f;
@@ -78,7 +81,7 @@ void updateCamera() {
     }
     
     // Движение вверх/вниз (пробел и E)
-    if (keys[' ']  keys['Q']) {
+    if (keys[' '] || keys['q'] || keys['Q']) {
         ypos -= 0.05;
     }
     if (keys['e'] || keys['E']) {
@@ -114,7 +117,7 @@ void display() {
     glRotatef(yangle, 0, 1, 0);
     glRotatef(xangle, 1, 0, 0);
     
-    drawCube(0.5);
+    drawCube(cubeSize);  // Используем случайный размер куба
     
     glutSwapBuffers();
     glutPostRedisplay();
@@ -123,12 +126,22 @@ void display() {
 void reshape(int w, int h) {
     glViewport(0, 0, w, h);
     glMatrixMode(GL_PROJECTION);
-    glLoadIdentity();  // ← Здесь была ошибка: "чйча" вместо "glLoadIdentity()"
+    glLoadIdentity();
     gluPerspective(45.0, (double)w / (double)h, 0.1, 100.0);
     glMatrixMode(GL_MODELVIEW);
 }
 
 int main(int argc, char** argv) {
+    // Генерация случайного размера куба
+    std::random_device rd;
+    std::mt19937 gen(rd());
+    std::uniform_real_distribution<float> dist(0.3f, 1.2f);  // Размер от 0.3 до 1.2
+    
+    cubeSize = dist(gen);
+    
+    // Вывод размера куба в консоль
+    printf("Random cube size: %.2f\n", cubeSize);
+    
     glutInit(&argc, argv);
     glutInitDisplayMode(GLUT_DOUBLE | GLUT_RGB | GLUT_DEPTH);
     glutInitWindowSize(800, 600);
@@ -146,4 +159,4 @@ int main(int argc, char** argv) {
     
     glutMainLoop();
     return 0;
-}
+} 
